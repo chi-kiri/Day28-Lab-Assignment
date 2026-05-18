@@ -1,7 +1,8 @@
 # api-gateway/main.py
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from prometheus_fastapi_instrumentator import Instrumentator
-import httpx, os, time, langsmith
+import httpx, os, time
 
 app = FastAPI(title="AI Platform API Gateway")
 Instrumentator().instrument(app).expose(app)  # Integration 9: Prometheus
@@ -9,16 +10,20 @@ Instrumentator().instrument(app).expose(app)  # Integration 9: Prometheus
 VLLM_URL = os.environ["VLLM_URL"]
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://qdrant:6333")
 
+class ChatRequest(BaseModel):
+    query: str
+    embedding: list[float] = None
+
 @app.post("/api/v1/chat")
-async def chat(request: Request):
-    body = await request.json()
-    query = body["query"]
+async def chat(req: ChatRequest):
+    query = req.query
+    embedding = req.embedding or [0.0] * 384
     start = time.time()
 
     # 1. Vector search
     async with httpx.AsyncClient() as client:
         search_resp = await client.post(f"{QDRANT_URL}/collections/documents/points/search", json={
-            "vector": body.get("embedding", [0.0] * 384),
+            "vector": embedding,
             "limit": 3
         })
         context = search_resp.json().get("result", [])
